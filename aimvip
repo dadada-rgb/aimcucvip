@@ -1,0 +1,417 @@
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local player = game.Players.LocalPlayer
+
+
+getgenv().Aimbot = {
+    Status = false, -- Bật tạm thời khi giữ chuột phải
+    Hitpart = 'Head',
+    Prediction = { X = 0.165, Y = 0.1 },
+    SelectedTargets = {}
+}
+
+getgenv().TriggerBot = {
+    Enabled = true,
+	Delay = 0.3
+}
+
+-- 🔧 Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+
+-- 🧱 GUI
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- 🔧 Tạo GUI
+local screenGui = Instance.new("ScreenGui", game.CoreGui)
+screenGui.Name = "AimbotTargetSelector"
+screenGui.ResetOnSpawn = false
+
+local frame = Instance.new("Frame")
+frame.Name = "MainFrame"
+frame.Size = UDim2.new(0, 160, 0, 220)
+frame.Position = UDim2.new(0, 10, 0.4, -100)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = screenGui
+
+local uicorner = Instance.new("UICorner", frame)
+uicorner.CornerRadius = UDim.new(0, 8)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 24)
+title.Position = UDim2.new(0, 0, 0, 0)
+title.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+title.Text = "Target"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 14
+title.Parent = frame
+
+local toggleListButton = Instance.new("TextButton")
+toggleListButton.Size = UDim2.new(0, 20, 0, 20)
+toggleListButton.Position = UDim2.new(0, 10, 0, 10)
+toggleListButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+toggleListButton.Text = "-"
+toggleListButton.TextColor3 = Color3.new(1, 1, 1)
+toggleListButton.Font = Enum.Font.SourceSansBold
+toggleListButton.TextSize = 16
+toggleListButton.Parent = screenGui
+
+local toggleCorner = Instance.new("UICorner", toggleListButton)
+toggleCorner.CornerRadius = UDim.new(0, 6)
+
+local listVisible = true
+toggleListButton.MouseButton1Click:Connect(function()
+	listVisible = not listVisible
+	frame.Visible = listVisible
+	toggleListButton.Text = listVisible and "-" or "+"
+end)
+
+local titleCorner = Instance.new("UICorner", title)
+titleCorner.CornerRadius = UDim.new(0, 8)
+
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, -8, 1, -32)
+scrollFrame.Position = UDim2.new(0, 4, 0, 28)
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollFrame.ScrollBarThickness = 6
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.ClipsDescendants = true
+scrollFrame.Parent = frame
+
+local layout = Instance.new("UIListLayout", scrollFrame)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, 2)
+
+layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
+end)
+
+function refreshPlayerList()
+	for _, child in pairs(scrollFrame:GetChildren()) do
+		if child:IsA("TextButton") then child:Destroy() end
+	end
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer then
+			local button = Instance.new("TextButton")
+			button.Size = UDim2.new(1, -4, 0, 24)
+			button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+			button.TextColor3 = Color3.new(1, 1, 1)
+			button.BorderSizePixel = 0
+			button.TextSize = 13
+			button.Font = Enum.Font.SourceSans
+			button.AutoButtonColor = false
+			button.Parent = scrollFrame
+
+			local function updateText()
+				local selected = getgenv().Aimbot.SelectedTargets[player.Name]
+				button.Text = (selected and "🟢 " or "⚪ ") .. player.DisplayName .. " (" .. player.Name .. ")"
+			end
+
+			button.MouseButton1Click:Connect(function()
+				if getgenv().Aimbot.SelectedTargets[player.Name] then
+					getgenv().Aimbot.SelectedTargets[player.Name] = nil
+					removeESP(player) -- Gỡ ESP ngay khi bỏ chọn
+				else
+					getgenv().Aimbot.SelectedTargets[player.Name] = true
+				end
+				updateText()
+			end)
+
+			updateText()
+		end
+	end
+end
+
+Players.PlayerAdded:Connect(refreshPlayerList)
+Players.PlayerRemoving:Connect(refreshPlayerList)
+
+task.spawn(function()
+	while true do
+		refreshPlayerList()
+		task.wait(3)
+	end
+end)
+
+
+local function getToolName(plr)
+	if plr.Character then
+		for _, item in ipairs(plr.Character:GetChildren()) do
+			if item:IsA("Tool") then
+				return item.Name
+			end
+		end
+	end
+	return "None"
+end
+
+function removeESP(plr)
+	if plr.Character then
+		local char = plr.Character
+		local hl = char:FindFirstChild("ESPHighlight")
+		if hl then hl:Destroy() end
+
+		local gui = char:FindFirstChild("NameESP")
+		if gui then gui:Destroy() end
+	end
+end
+
+function updateSelectedESP(plr)
+	if plr == LocalPlayer then return end
+	if not getgenv().Aimbot or not getgenv().Aimbot.SelectedTargets[plr.Name] then return end
+	local char = plr.Character
+	if not char or not char:FindFirstChild("Head") then return end
+	local head = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+
+	if not char:FindFirstChild("ESPHighlight") then
+		local hl = Instance.new("Highlight")
+		hl.Name = "ESPHighlight"
+		hl.Adornee = char
+		hl.FillColor = Color3.fromRGB(0, 255, 0)
+		hl.FillTransparency = 0.4
+		hl.OutlineTransparency = 0
+		hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		hl.Parent = char
+	end
+
+	local gui = char:FindFirstChild("NameESP")
+	if not gui then
+		gui = Instance.new("BillboardGui")
+		gui.Name = "NameESP"
+		gui.Adornee = head
+		gui.Size = UDim2.new(0, 200, 0, 40)
+		gui.StudsOffset = Vector3.new(0, 2.5, 0)
+		gui.AlwaysOnTop = true
+		gui.Parent = char
+
+		for i = 1, 3 do
+			local label = Instance.new("TextLabel")
+			label.Name = "Line"..i
+			label.Size = UDim2.new(1, 0, 0.33, 0)
+			label.Position = UDim2.new(0, 0, (i-1)*0.33, 0)
+			label.BackgroundTransparency = 1
+			label.TextColor3 = Color3.fromRGB(0, 255, 0)
+			label.TextStrokeTransparency = 0.5
+			label.TextStrokeColor3 = Color3.new(0, 0, 0)
+			label.Font = Enum.Font.SourceSansBold
+			label.TextScaled = true
+			label.Parent = gui
+		end
+	end
+
+	gui.Line1.Text = plr.DisplayName .. " (" .. plr.Name .. ")"
+	gui.Line2.Text = "HP: " .. math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth)
+	gui.Line3.Text = "Tool: " .. getToolName(plr)
+end
+
+task.spawn(function()
+	while task.wait(0.5) do
+		for _, p in ipairs(Players:GetPlayers()) do
+			updateSelectedESP(p)
+		end
+	end
+end)
+
+Players.PlayerAdded:Connect(function(p)
+	p.CharacterAdded:Connect(function()
+		if getgenv().Aimbot.SelectedTargets[p.Name] then
+			task.delay(1, function() updateSelectedESP(p) end)
+		end
+	end)
+end)
+
+local AllowedTools = {
+	["[Double-Barrel SG]"] = true,
+	["[Revolver]"] = true,
+	["[TacticalShotgun]"] = true,
+}
+
+mouse1click = mouse1click or function()
+	local vim = game:GetService("VirtualInputManager")
+	vim:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+	vim:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+end
+
+local function SmartPredictPosition(targetPart, distance)
+	local velocity = targetPart.Velocity
+	local speed = velocity.Magnitude
+
+	-- Nếu gần như đứng yên thì không cần dự đoán
+	if speed < 2 then
+		return targetPart.Position
+	end
+
+	-- Dự đoán base
+	local basePrediction = 0.12
+	local addedPrediction = speed * 0.0032
+
+	-- Nếu mục tiêu đang nhảy (di chuyển trục Y lớn)
+	if math.abs(velocity.Y) > 3 then
+		addedPrediction += 0.08 -- tăng thêm prediction khi nhảy
+	end
+
+	local predictionTime = basePrediction + addedPrediction
+	predictionTime = math.clamp(predictionTime, 0.12, 0.5)
+
+	return targetPart.Position + (velocity * predictionTime)
+end
+
+local function GetBestTarget()
+	local bestTarget = nil
+	local closestDist = math.huge
+	local origin = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	if not origin then return nil end
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and getgenv().Aimbot.SelectedTargets[player.Name] then
+			local char = player.Character
+			local root = char and char:FindFirstChild(getgenv().Aimbot.Hitpart)
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+			if root and hum and hum.Health > 10 and not hum.PlatformStand then
+				-- Raycast để kiểm tra không bị che
+				local direction = (root.Position - Camera.CFrame.Position).Unit * 2000
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Blacklist
+				params.FilterDescendantsInstances = {LocalPlayer.Character}
+				params.IgnoreWater = true
+
+				local result = Workspace:Raycast(Camera.CFrame.Position, direction, params)
+
+				if result and (result.Instance == root or result.Instance:IsDescendantOf(char)) then
+					local distance = (origin.Position - root.Position).Magnitude
+					if distance < closestDist then
+						closestDist = distance
+						bestTarget = player
+					end
+				end
+			end
+		end
+	end
+
+	return bestTarget
+end
+
+task.spawn(function()
+	while task.wait(getgenv().TriggerBot.Delay) do
+		if not getgenv().TriggerBot.Enabled then continue end
+
+		local target = GetBestTarget()
+		if target and target.Character then
+			local part = target.Character:FindFirstChild(getgenv().Aimbot.Hitpart)
+			if part then
+				-- Raycast từ tâm camera xem có trúng kẻ địch không
+				local origin = Camera.CFrame.Position
+				local direction = Camera.CFrame.LookVector * 2000
+
+				local rayParams = RaycastParams.new()
+				rayParams.FilterDescendantsInstances = {LocalPlayer.Character}
+				rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+				rayParams.IgnoreWater = true
+
+				local result = Workspace:Raycast(origin, direction, rayParams)
+				if result and result.Instance and result.Instance:IsDescendantOf(target.Character) then
+					mouse1click()
+				end
+			end
+		end
+	end
+end)
+
+-- 🔁 Hàm kiểm tra có đang cầm tool được phép không
+local function isHoldingAllowedTool()
+	local char = LocalPlayer.Character
+	if not char then return false end
+
+	for _, item in ipairs(char:GetChildren()) do
+		if item:IsA("Tool") and AllowedTools[item.Name] then
+			return true
+		end
+	end
+
+	return false
+end
+
+-- 👁‍🗨 Xử lý thay đổi góc nhìn
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		getgenv().Aimbot.Status = true
+
+		if isHoldingAllowedTool() then
+			LocalPlayer.CameraMode = Enum.CameraMode.LockFirstPerson
+		end
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		getgenv().Aimbot.Status = false
+
+		-- Về lại góc nhìn thứ ba
+		player.CameraMinZoomDistance = 5
+		LocalPlayer.CameraMode = Enum.CameraMode.Classic
+	end
+end)
+
+
+task.spawn(function()
+	while task.wait(0.01) do
+		if not getgenv().Aimbot.Status then continue end
+		if not isHoldingAllowedTool() then continue end -- 🔒 Chỉ hoạt động nếu cầm đúng tool
+
+		local target = GetBestTarget()
+		if target and target.Character then
+			local part = target.Character:FindFirstChild(getgenv().Aimbot.Hitpart)
+			if part then
+				local distance = (Camera.CFrame.Position - part.Position).Magnitude
+				local hum = target.Character:FindFirstChildOfClass("Humanoid")
+				local predictVec = SmartPredictPosition(part, distance, hum)
+
+				local origin = Camera.CFrame.Position
+				local direction = (predictVec - origin).Unit * 2000
+
+				local rayParams = RaycastParams.new()
+				rayParams.FilterDescendantsInstances = {LocalPlayer.Character}
+				rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+				rayParams.IgnoreWater = true
+
+				local result = Workspace:Raycast(origin, direction, rayParams)
+				if result and result.Instance and result.Instance:IsDescendantOf(target.Character) then
+					Camera.CFrame = CFrame.new(origin, predictVec)
+				end
+			end
+		end
+	end
+end)
+
+-- 👆 Chọn người bằng Ctrl + Click trái
+UserInputService.InputBegan:Connect(function(input, gp)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 and UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+		local target = Mouse.Target
+		if target and target:FindFirstAncestorOfClass("Model") then
+			local model = target:FindFirstAncestorOfClass("Model")
+			local targetPlayer = Players:GetPlayerFromCharacter(model)
+			if targetPlayer and targetPlayer ~= LocalPlayer then
+				if getgenv().Aimbot.SelectedTargets[targetPlayer.Name] then
+					getgenv().Aimbot.SelectedTargets[targetPlayer.Name] = nil
+					removeESP(targetPlayer)
+				else
+					getgenv().Aimbot.SelectedTargets[targetPlayer.Name] = true
+				end
+				refreshPlayerList()
+			end
+		end
+	end
+end)
